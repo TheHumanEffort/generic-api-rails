@@ -31,6 +31,41 @@ module GenericApiRails
     before_filter :model
     skip_before_filter :verify_authenticity_token
 
+    def self.query(id,&block)
+      id = id.to_sym
+      @query_handlers ||= {}
+      if block
+        @query_handlers[id] = block
+      end
+      r = @query_handlers[id]
+      
+      if(!r && superclass.respond_to?(:query))
+        r = superclass.query id
+      end
+
+      r
+    end
+
+    query :where do |param,collection|
+      hash = JSON.parse(param)
+      if(hash.has_key?('id'))
+        id_h = hash['id']
+        if(id_h['in'])
+          collection = collection.where(id: id_h['in'])
+        end
+      end
+      if(hash.has_key?('user_tags'))
+        user_tags = hash['user_tags']
+        if(user_tags.has_key?('isectNotEmpty'))
+          tags = user_tags['isectNotEmpty']
+
+          collection = collection.tagged_with(tags,owned_by: @authenticated)
+        end
+      end
+
+      collection
+    end
+
     def plural_template_name
       @tmpl_plural ||= singular_template_name.pluralize
     end
@@ -168,70 +203,54 @@ module GenericApiRails
       return if render_many(@instances,false)
       render_json @instances
     end
+
     
     def index
-      query_begin = nil
+      @collection = default_scope
+      where_hash = nil
 
-      if params[:ids]
-        id_list
-      else
-        search_hash = {}
-        do_search = false
-        special_handler = false
+      column_symbols = model.columns.collect { |c| c.name.to_sym }
+      Rails.logger.info "Column symbols: #{ column_symbols }"
 
-        @instances = nil
-
-        params.each do |key, value|
-          unless special_handler
-            special_handler ||= GenericApiRails.config.search_for(@model, key)
-            special_handler ||= GenericApiRails.config.search_for(@model, key.to_sym)
-            if special_handler
-              Rails.logger.info("CALLING SPECIAL HANDLER #{@model} :#{key.to_sym} with #{value}")
-              @instances = instance_exec(value, &special_handler)
-            end
+      params.each do |key,value|
+        Rails.logger.info "Looking for #{ key } "
+        if handler = self.class.query(key)
+          @collection = self.instance_exec(value,@collection,&handler)
+        elsif(column_symbols.include? key.to_sym)
+          where_hash ||= {}
+          where_hash[key.to_sym] = value
+        elsif config_handler ||= (GenericApiRails.config.search_for(@model,key) || GenericApiRails.config.search_for(@model,key.to_sym))
+          if(config_handler.arity == 1)
+            @collection = self.instance_exec(value,&config_handler)
+          elsif(config_handler.arity == 2)
+            @collection = self.instance_exec(value,@collection,&config_handler)
+          else
+            throw "Invalid arity for configured handler: #{ config_handler.arity } should be 1 or 2"
+          end
+        elsif /.*_id$/.match(key.to_s)
+          # This is an ID column, but our model doesn't "belong_to" this thing. So,
+          # this thing must belong to us, whether through a join table or not.  Thus,
+          #
+          #       GET /api/addresses?person_id=12
+          #
+          # means, Person.find(12).addressess...
+          # 
+          other_model = (key.to_s.gsub(/_id$/, "").camelize.safe_constantize).new.class rescue nil
+          begin
+            @collection = (other_model.unscoped.find(value)).send(@model.name.tableize.to_sym) if other_model
+          rescue ActiveRecord::RecordNotFound
+            Rails.logger.info("GAR: Error finding the requested #{other_model.name}: #{val}")
+            render_error(ApiError::UNAUTHORIZED) and return false
           end
         end
-
-        unless special_handler
-          column_syms = model.columns.collect {|c| c.name.to_sym}
-          params.each do |key, val|
-            if column_syms.include?(key.to_sym)
-              search_hash[key.to_sym] = val
-              do_search = true
-            elsif /.*_id$/.match(key.to_s)
-              # This is an ID column, but our model doesn't "belong_to" this thing. So,
-              # this thing must belong to us, whether through a join table or not.  Thus,
-              #
-              #       GET /api/addresses?person_id=12
-              #
-              # means, Person.find(12).addressess...
-              # 
-              other_model = (key.to_s.gsub(/_id$/, "").camelize.safe_constantize).new.class rescue nil
-              begin
-                query_begin = (other_model.unscoped.find(val)).send(@model.name.tableize.to_sym) if other_model
-              rescue ActiveRecord::RecordNotFound
-                Rails.logger.info("GAR: Error finding the requested #{other_model.name}: #{val}")
-                render_error(ApiError::UNAUTHORIZED) and return false
-              end
-            end
-          end
-        end
-
-        query_begin ||= default_scope
-        if do_search
-          @instances = query_begin.where(search_hash)
-          render_error(ApiError::UNAUTHORIZED) and return false unless authorized?(:read, @instances)
-        elsif special_handler
-          render_error(ApiError::UNAUTHORIZED) and return false unless authorized?(:read, @instances)
-        else
-          render_error(ApiError::UNAUTHORIZED) and return false unless authorized?(:index, model)
-          @instances = query_begin.all
-        end
-        
-        @include = JSON.parse(params[:include]) rescue {}
-
-        render_json(@instances)
       end
+
+      if(where_hash)
+        @collection = @collection.where(where_hash)
+      end
+
+      render_error(ApiError::UNAUTHORIZED) and return false unless authorized?(:read, @collection)
+      render_json @collection
     end
 
     def show
