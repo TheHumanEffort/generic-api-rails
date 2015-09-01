@@ -48,18 +48,22 @@ module GenericApiRails
 
     query :where do |param,collection|
       hash = JSON.parse(param)
-      if(hash.has_key?('id'))
-        id_h = hash['id']
-        if(id_h['in'])
-          collection = collection.where(id: id_h['in'])
+      
+      model_columns = model.columns.map { |c| c.name }
+      hash.each do |key,value|
+        if(model_columns.include? key)
+          if value.has_key? 'in'
+            collection = collection.where(key.to_sym => value['in'])
+          end
         end
       end
+      
       if(hash.has_key?('user_tags'))
         user_tags = hash['user_tags']
         if(user_tags.has_key?('isectNotEmpty'))
           tags = user_tags['isectNotEmpty']
 
-          collection = collection.tagged_with(tags,owned_by: @authenticated)
+          collection = collection.tagged_with(tags,owned_by: @authenticated,any: true)
         end
       end
 
@@ -91,7 +95,13 @@ module GenericApiRails
 
     def render_one row
       @is_collection = false
-      if template_exists?(tmpl="#{GAR}/#{ row.to_partial_path }")
+      has_partials = row.respond_to? :to_partial_path
+      
+      if !has_partials
+        return true
+      end
+
+      if(template_exists?(tmpl="#{GAR}/#{ row.to_partial_path }"))
         locals = {}
         locals[model.model_name.element.to_sym] = row
         render tmpl, locals: locals
@@ -191,7 +201,7 @@ module GenericApiRails
     end
 
     def default_scope
-      model
+      model.all
     end
 
     def id_list
@@ -210,10 +220,10 @@ module GenericApiRails
       where_hash = nil
 
       column_symbols = model.columns.collect { |c| c.name.to_sym }
-      Rails.logger.info "Column symbols: #{ column_symbols }"
+#      Rails.logger.info "Column symbols: #{ column_symbols }"
 
       params.each do |key,value|
-        Rails.logger.info "Looking for #{ key } "
+#        Rails.logger.info "Looking for #{ key } "
         if handler = self.class.query(key)
           @collection = self.instance_exec(value,@collection,&handler)
         elsif(column_symbols.include? key.to_sym)
@@ -250,6 +260,7 @@ module GenericApiRails
       end
 
       render_error(ApiError::UNAUTHORIZED) and return false unless authorized?(:read, @collection)
+      # Rails.logger.info "Rendering #{ @collection }"
       render_json @collection
     end
 
