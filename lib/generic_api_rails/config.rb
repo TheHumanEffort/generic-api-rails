@@ -1,7 +1,9 @@
 module GenericApiRails
   module Config
     DEFAULT_ERROR_TRANSFORM = proc { |hash| hash }
-
+    DEFAULT_RECORD_RENDERER = proc { |record| record.as_json }
+    DEFAULT_COLLECTION_RENDERER = proc { |collection| collection.as_json }
+    
     class << self
       attr_accessor :simple_api
 
@@ -60,7 +62,7 @@ module GenericApiRails
         @recover_password_with = blk if blk
         @recover_password_with
       end
-      
+
       # For OAuth purposes, the API server tries to smoothen
       # differences between different authorization providers and
       # calls omniauth_with with a provider, uid, and email for
@@ -79,7 +81,7 @@ module GenericApiRails
       #
       # - user is whatever authorize_with returns
       # - action is a symbol that is :index, :show, :create, :update, :destroy
-      # - resource is an individual model or collection 
+      # - resource is an individual model or collection
       def authorize_with(&blk)
         @authorize_with = blk if blk
         @authorize_with
@@ -92,6 +94,20 @@ module GenericApiRails
       def transform_error_with(&blk)
         @transform_error_with = blk if blk
         @transform_error_with || DEFAULT_ERROR_TRANSFORM
+      end
+
+      # This is the place where you can hook into rendering for items and
+      # collections, it is executed in the context of the RestController, so you
+      # can access variables like @limit, @offset, and @count.
+
+      def render_records_with(&blk)
+        @render_records_with = blk if blk
+        @render_records_with || DEFAULT_RECORD_RENDERER
+      end
+
+      def render_collections_with(&blk)
+        @render_collections_with = blk if blk
+        @render_collections_with || DEFAULT_COLLECTION_RENDERER
       end
 
       # Here are some pieces of configuration that allow for the

@@ -12,16 +12,16 @@
 # Collection-like requests:
 #  - multiple-row-requests (/api/people?ids=34,23,2)
 #    - renders /generic_api_rails/people/people with @people = [34,23,2] and @collection = false
-#      - by default will render /generic_api_rails/people/person , with person and @collection = false 
+#      - by default will render /generic_api_rails/people/person , with person and @collection = false
 #        for each row
 #  - collection requests (/api/people?group_id=18)
 #    - renders /generic_api_rails/people/people with @people = [...] and @collection = true
 #      - by default will render /generic_api_rails/people/_person with person and @collection = true
 #
 # Single-row requests:
-#  - render /generic_api_rails/people/person with person and @collection = false
+#  - render3 /generic_api_rails/people/person with person and @collection = false
 #    - by default will render /generic_api_rails/people/_person with person and @collection = false;
-# 
+#
 
 module GenericApiRails
   GAR = "generic_api_rails"
@@ -38,7 +38,7 @@ module GenericApiRails
         @query_handlers[id] = block
       end
       r = @query_handlers[id]
-      
+
       if(!r && superclass.respond_to?(:query))
         r = superclass.query id
       end
@@ -48,7 +48,7 @@ module GenericApiRails
 
     query :where do |param,collection|
       hash = JSON.parse(param)
-      
+
       model_columns = model.columns.map { |c| c.name }
       hash.each do |key,value|
         if(model_columns.include? key)
@@ -57,7 +57,7 @@ module GenericApiRails
           end
         end
       end
-      
+
       if(hash.has_key?('user_tags'))
         user_tags = hash['user_tags']
         if(user_tags.has_key?('isectNotEmpty'))
@@ -70,104 +70,12 @@ module GenericApiRails
       collection
     end
 
-    def plural_template_name
-      @tmpl_plural ||= singular_template_name.pluralize
-    end
-    def singular_template_name
-      @tmpl_name ||= @model.name.underscore
+    def render_record record
+      render json: self.instance_exec(record,&GenericApiRails.config.render_records_with)
     end
     
-    def render_many rows,is_collection
-      @is_collection = is_collection
-      
-      if template_exists?(tmpl="#{GAR}/#{ model.new.to_partial_path.pluralize }")
-        locals = {}
-        locals[@model.model_name.element.pluralize] = rows
-        render tmpl, locals: locals
-        true
-      elsif template_exists?(tmpl="#{GAR}/base/collection")
-        if @count
-          render tmpl, locals: { collection: rows, total: @count }
-        else
-          render tmpl, locals: { collection: rows}
-        end
-        true
-      else
-        false
-      end
-    end
-
-    def render_one(row)
-      @is_collection = false
-
-      if template_exists?(tmpl="#{GAR}/#{ row.to_partial_path }")
-        locals = {}
-        locals[model.model_name.element.to_sym] = row
-        render tmpl, locals: locals
-        true
-      elsif template_exists?(tmpl="#{GAR}/base/item")
-        render tmpl, locals: { item: row }
-        true
-      else
-        false
-      end
-    end
-      
-
-    def render_one_json(m)
-      simple = GenericApiRails.config.simple_api rescue nil
-
-      include = m.class.reflect_on_all_associations.select do 
-        |a| a.macro == :has_and_belongs_to_many or a.macro == :has_one
-      end.map do |a|
-        h = {}
-        h[a.name] = { only: [:id] }
-        h
-      end.inject({}) do |a, b|
-        a.merge b
-      end 
-
-      include = include.merge @include if @include
-
-      h = m.as_json(for_member: (@authenticated.member rescue nil), include: include)
-      h = { model: h } if not simple
-      if m.errors.keys
-        h[:errors] = m.errors.messages
-      end
-      h
-    end
-    
-    def render_json(data)
-      @count = data.count if data.respond_to? :count
-      
-      data = data.limit(@limit) if @limit
-      data = data.offset(@offset) if @offset
-
-      simple = GenericApiRails.config.simple_api rescue nil
-
-      @collection = data
-
-      if data.respond_to?(:collect)
-        return if render_many(data, true)
-
-        meta = {}
-        begin
-          if defined?(@count)
-            meta[:total] = @count
-          end
-        rescue
-          # Error occurred trying to get count, instead of stopping
-          # request, send down the total number in the request
-          meta[:total] = data.length
-        end
-
-        meta[:rows] = data.collect { |m| render_one_json(m) }
-        meta = meta[:rows] if simple
-        render json: meta
-      else
-        return if render_one(data)
-        render json: render_one_json(data)
-      end
+    def render_collection collection
+      render json: self.instance_exec(collection,&GenericApiRails.config.render_collections_with)
     end
 
     def setup
@@ -184,7 +92,7 @@ module GenericApiRails
       namespace ||= params[:namespace].camelize if params.has_key? :namespace
       model_name ||= params[:model].singularize.camelize if params.has_key? :model
       if namespace
-        qualified_name = "#{namespace}::#{model_name}" 
+        qualified_name = "#{namespace}::#{model_name}"
       elsif model_name
         qualified_name = model_name
       else
@@ -205,14 +113,12 @@ module GenericApiRails
     def id_list
       ids = params[:ids].split ','
       @instances = default_scope.where(id: ids)
-      
+
       render_error(ApiError::UNAUTHORIZED) and return false unless authorized?(:read, @instances)
 
-      return if render_many(@instances,false)
-      render_json @instances
+      render_collection @instances
     end
 
-    
     def index
       @collection = default_scope
       where_hash = nil
@@ -242,7 +148,7 @@ module GenericApiRails
           #       GET /api/addresses?person_id=12
           #
           # means, Person.find(12).addressess...
-          # 
+          #
           other_model = (key.to_s.gsub(/_id$/, "").camelize.safe_constantize).new.class rescue nil
           begin
             @collection = (other_model.unscoped.find(value)).send(@model.name.tableize.to_sym) if other_model
@@ -259,19 +165,19 @@ module GenericApiRails
 
       render_error(ApiError::UNAUTHORIZED) and return false unless authorized?(:read, @collection)
       # Rails.logger.info "Rendering #{ @collection }"
-      render_json @collection
+      render_collection @collection
     end
 
     def show
       read
     end
-    
+
     def read
       # use find, but rescue away from a 404 exception, we need to
       # render a 403 if the person isn't allowed to see that there
       # isn't an item there:
       @instance = (@model.unscoped.find(params[:id]) rescue nil)
-      
+
       # if there is no model and the user doesn't have indexing
       # privileges, we can't report to them that there isn't a model
       # there, so we render this error:
@@ -281,12 +187,12 @@ module GenericApiRails
       # (indexing privileges), and the item isn't there, we need to
       # report it as a 404:
       raise ActiveRecord::RecordNotFound and return false unless @instance
-      
+
       @include = JSON.parse(params[:include]) rescue {}
 
       render_error(ApiError::UNAUTHORIZED) and return false unless authorized?(:read, @instance)
 
-      render_json @instance
+      render_record @instance
     end
 
     def create
@@ -306,8 +212,8 @@ module GenericApiRails
 
       render_error(ApiError::UNAUTHORIZED) and return false unless authorized?(:create, @instance)
       @instance.save
- 
-      render_json @instance
+
+      render_record @instance
     end
 
     def assign_instance_attributes(hash)
@@ -319,6 +225,7 @@ module GenericApiRails
       hash = JSON.parse(request.raw_post)
       hash ||= params
       hash = hash.to_hash.with_indifferent_access
+
       hash.delete(:controller)
       hash.delete(:action)
       hash.delete(:model)
@@ -330,16 +237,16 @@ module GenericApiRails
 
       @instance.save
 
-      render_json @instance
+      render_record @instance
     end
 
     def destroy
       @instance = model.unscoped.find(params[:id])
 
       render_error(ApiError::UNAUTHORIZED) and return false unless authorized?(:destroy, @instance)
-      
+
       @instance.destroy!
-      
+
       render json: { success: true }
     end
   end
