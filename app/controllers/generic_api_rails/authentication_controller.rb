@@ -1,5 +1,10 @@
 require 'open-uri'
-require 'koala'
+
+begin
+  require 'koala'
+rescue Exception
+  Rails.logger.info "Koala is not available, add it to your gemfile to add facebook login support."
+end
 
 class GenericApiRails::AuthenticationController < GenericApiRails::BaseController
   skip_before_filter :api_setup, except: [:logout,:change_password]
