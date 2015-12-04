@@ -44,7 +44,6 @@ module GenericApiRails
       @request = request
 
       incoming_token = params[:api_token] || request.headers['api-token']
-
       @api_token = api_token = ApiToken.find_by_token(incoming_token) if incoming_token
 
       credential = api_token.credential if api_token

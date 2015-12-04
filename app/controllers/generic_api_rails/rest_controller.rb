@@ -86,22 +86,21 @@ module GenericApiRails
         render tmpl, locals: locals
         true
       elsif template_exists?(tmpl="#{GAR}/base/collection")
-        render tmpl, locals: { collection: rows }
+        if @count
+          render tmpl, locals: { collection: rows, total: @count }
+        else
+          render tmpl, locals: { collection: rows}
+        end
         true
       else
         false
       end
     end
 
-    def render_one row
+    def render_one(row)
       @is_collection = false
-      has_partials = row.respond_to? :to_partial_path
-      
-      if !has_partials
-        return true
-      end
 
-      if(template_exists?(tmpl="#{GAR}/#{ row.to_partial_path }"))
+      if template_exists?(tmpl="#{GAR}/#{ row.to_partial_path }")
         locals = {}
         locals[model.model_name.element.to_sym] = row
         render tmpl, locals: locals
@@ -124,7 +123,7 @@ module GenericApiRails
         h = {}
         h[a.name] = { only: [:id] }
         h
-      end.inject({}) do |a,b|
+      end.inject({}) do |a, b|
         a.merge b
       end 
 
@@ -149,11 +148,11 @@ module GenericApiRails
       @collection = data
 
       if data.respond_to?(:collect)
-        return if render_many data,true
+        return if render_many(data, true)
 
         meta = {}
         begin
-          if defined? @count
+          if defined?(@count)
             meta[:total] = @count
           end
         rescue
@@ -162,11 +161,11 @@ module GenericApiRails
           meta[:total] = data.length
         end
 
-        meta[:rows] = data.collect { |m| render_one_json m }
+        meta[:rows] = data.collect { |m| render_one_json(m) }
         meta = meta[:rows] if simple
         render json: meta
       else
-        return if render_one data
+        return if render_one(data)
         render json: render_one_json(data)
       end
     end
@@ -182,7 +181,6 @@ module GenericApiRails
     end
 
     def model
-
       namespace ||= params[:namespace].camelize if params.has_key? :namespace
       model_name ||= params[:model].singularize.camelize if params.has_key? :model
       if namespace
@@ -304,7 +302,7 @@ module GenericApiRails
 
       # params.require(:rest).permit(params[:rest].keys.collect { |k| k.to_sym })
 
-      @instance.assign_attributes(hash.to_hash)
+      assign_instance_attributes(hash.to_hash)
 
       render_error(ApiError::UNAUTHORIZED) and return false unless authorized?(:create, @instance)
       @instance.save
