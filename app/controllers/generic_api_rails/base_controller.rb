@@ -7,7 +7,7 @@ module GenericApiRails
     skip_before_filter :verify_authenticity_token, :only => [:options]
 
     rescue_from ActiveRecord::RecordNotFound, with: :render_404
-    
+
     def options
     end
 
@@ -45,30 +45,43 @@ module GenericApiRails
 
       incoming_token = params[:api_token] || request.headers['api-token']
       @api_token = api_token = ApiToken.find_by_token(incoming_token) if incoming_token
+      @syntax_version = request.headers['sv']
 
       credential = api_token.credential if api_token
       token = api_token.token if api_token
-      
+
       if api_token and not token
         api_token.delete if api_token
         raise ApiError.find(ApiError::INVALID_API_TOKEN)
       end
-      
+
       @authenticated = credential
 
       s = GenericApiRails.config.session_authentication_method
       send(s) if s
-      
+
       @action = params[:action]
       @controller = params[:controller]
       @arguments = params[:rest]
     end
 
+    def syntax_version
+      @syntax_version
+    end
+
+    def render_record record
+      render json: self.instance_exec(record,&GenericApiRails.config.render_records_with)
+    end
+
+    def render_collection collection
+      render json: self.instance_exec(collection,&GenericApiRails.config.render_collections_with)
+    end
+
     def render_error(error_code, extra_hash_members={})
       apierr = ApiError.find_by_code(error_code)
-      
+
       errhash = { :error => apierr.as_json({}) }.merge(extra_hash_members)
-      
+
       errhash = GenericApiRails.config.transform_error_with.call(errhash)
 
       # logger.info "ERRHASH #{errhash}"

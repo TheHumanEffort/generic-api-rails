@@ -70,14 +70,6 @@ module GenericApiRails
       collection
     end
 
-    def render_record record
-      render json: self.instance_exec(record,&GenericApiRails.config.render_records_with)
-    end
-    
-    def render_collection collection
-      render json: self.instance_exec(collection,&GenericApiRails.config.render_collections_with)
-    end
-
     def setup
       @rest = params[:rest]
       @action = params[:action]
