@@ -305,15 +305,17 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
   end
 
   def signup
-    @results = GenericApiRails.config.signup_with.call(params)
+    cleaned_params = params.except(:format,:controller,:action)
+
+    @result = GenericApiRails.config.signup_with.call(cleaned_params)
     errors = {};
 
-    if @results[0].nil?
+    if @result.nil?
       @credential = nil
-      errors[:message] = @results[1]
+      errors[:message] = "unidentified signup failure"
       render json: { errors: errors } and return
     else
-      @credential = @results[0]
+      @credential = @result
 
       if @credential.respond_to?(:errors) and @credential.errors.messages.length > 0
         @credential.errors.each do |key,value|
@@ -334,8 +336,6 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
     end
 
     done
-
-    render 'login'
   end
 
   def logout
