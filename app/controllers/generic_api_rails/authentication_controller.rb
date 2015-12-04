@@ -19,7 +19,7 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
     @res = GenericApiRails.config.change_password_with.call(@authenticated,old_password,new_password);
 
     render :json => { success: false , error: "Invalid password" }  and return unless @res
-    
+
     render :json => { success: true }
   end
 
@@ -30,7 +30,7 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
     @credential = GenericApiRails.config.reset_password_with.call(token,password)
 
     render :json => { error: { description: "Invalid token." } } and return false unless @credential
-    if( @credential.errors.messages.length > 0) 
+    if( @credential.errors.messages.length > 0)
       errors = {};
       @credential.errors.each do |key,value|
         if value.kind_of? Array
@@ -42,26 +42,28 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
       render :json => { :errors =>  errors }
       return
     end
-    
-    done
+
+    render_record(@api_token)
   end
 
   def recover_password
     success = GenericApiRails.config.recover_password_with.call(params[:email] || params[:username] || params[:login])
-    
+
     render :json => { success: success }
   end
-  
+
   def done
     render_error(ApiError::INVALID_USERNAME_OR_PASSWORD) and return false unless @credential
-    
+
     # We cannot create a polymorphic association with find or create by, it appears
     if GenericApiRails.config.new_api_token_every_login == true
       @api_token ||= ApiToken.create(credential: @credential)
     else
       @api_token ||= ApiToken.where(credential: @credential).first_or_create
     end
-    
+
+    render_record @api_token
+
     # if @credential and @api_token
     #   res = @credential.as_json
     #   res[:email] = @credential.email.address
@@ -81,7 +83,7 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
     # By default, client-side authentication gives you a short-lived
     # token:
     short_lived_token = params[:access_token]
-    
+
     fb_hash = GenericApiRails.config.facebook_hash
     if fb_hash.nil?
       logger.error('Facebook login/signup not configured. For configuration instructions see controllers/generic_api_rails/authentication_controller.rb in the generic_api_rails project')
@@ -94,7 +96,7 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
 
     # to upgrade it, hit this URI, and use the token it hands back:
     token_upgrade_uri = "https://graph.facebook.com/oauth/access_token?client_id=#{app_id}&client_secret=#{app_secret}&grant_type=fb_exchange_token&fb_exchange_token=#{short_lived_token}"
-    
+
     begin
       res = URI.parse(token_upgrade_uri).read
 
@@ -168,7 +170,7 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
     }
 
     post_data_string = URI.escape(post_data.collect{|k,v| "#{k}=#{v}"}.join('&'))
-    code_response = oauth_https.post(code_uri.path, post_data_string) 
+    code_response = oauth_https.post(code_uri.path, post_data_string)
 
     if code_response.code.to_s != 200.to_s
       render :json => { success: false , error: "Could not authenticate using Google" }
@@ -195,7 +197,7 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
       render :json => { success: false , error: "Linkedin login/signup not configured" }
       return
     end
-    
+
     # Get the "Real" authorization code
     temp_access_token = params['access_token']
 
@@ -212,7 +214,7 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
     }
     post_data_string = URI.escape(post_data.collect{|k,v| "#{k}=#{v}"}.join('&'))
 
-    code_response = oauth_https.post(code_uri.path, post_data_string) 
+    code_response = oauth_https.post(code_uri.path, post_data_string)
 
     if code_response.code.to_s != 200.to_s
       # log the error message if there is one
@@ -258,7 +260,7 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
       #profile_picture_uri: profile_pic,
       #birthdate: user_info["birthday"]
     }
-    
+
     # You'll have to define GenericApiRails.config.oauth_with for your
     # particular application
     @results = GenericApiRails.config.oauth_with.call(provider: "linkedin", uid: uid, email: @email , person: person_hash)
@@ -273,11 +275,8 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
   end
 
   def login
-    username = params[:username] || params[:email] || params[:login]
     incoming_api_token = params[:api_token] || request.headers["api-token"]
-    password = params[:password]
 
-    username = username.downcase if username.present?
     @credential = nil
     api_token = nil
 
@@ -297,56 +296,18 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
     end
 
     if not @api_token
-      if username.blank? or password.blank?
-        render_error(ApiError::INVALID_USERNAME_OR_PASSWORD) and return
-      else
-        @credential = GenericApiRails.config.login_with.call(username, password)
-      end
+      @credential = GenericApiRails.config.login_with.call(params)
     end
 
     logger.debug("Credentials #{ @credential }")
+
     done
   end
 
-  def validate_signup_params(params)
-    errs = {}
-    if not params[:fname] and not params[:lname] and not params[:name]
-      errs[:fname] = "You must provide at least one name"
-    end
-
-    if not true
-      errs[:fname] = "You must provide a first name" unless params[:fname].present?
-      errs[:lname] = "You must provide a last name" unless params[:lname].present?
-    end
-
-    errs[:username] = "You must provide a valid email" unless params[:username].present?
-    errs[:password] = "You must provide a password of at least 4 characters" unless params[:password].present? && params[:password].length >= 4
-    errs = nil if errs.keys.length == 0
-    errs
-  end
-
   def signup
-    username = params[:username] || params[:login] || params[:email]
-    password = params[:password]
-
-    options = params
-    if not params.has_key?(:fname) and not params.has_key?(:lname) and params.has_key?(:name)
-      options[:name] = params[:name]
-      components = params[:name].split(" ") rescue [params[:name]]
-      fname = components.shift
-      lname = components.join
-    else
-      fname = params[:fname]
-      lname = params[:lname]
-    end
-
-    options[:fname] = fname
-    options[:lname] = lname
-    
-    options[:password_confirmation] = params[:password_confirmation]
-     
-    @results = GenericApiRails.config.signup_with.call(username, password, options)
+    @results = GenericApiRails.config.signup_with.call(params)
     errors = {};
+
     if @results[0].nil?
       @credential = nil
       errors[:message] = @results[1]
@@ -371,12 +332,12 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
         return
       end
     end
-    
+
     done
 
     render 'login'
   end
-  
+
   def logout
     render_error(ApiError::INVALID_API_TOKEN) and return unless @authenticated
 
