@@ -3,7 +3,7 @@ module GenericApiRails
     DEFAULT_ERROR_TRANSFORM = proc { |hash| hash }
     DEFAULT_RECORD_RENDERER = proc { |record| record.as_json }
     DEFAULT_COLLECTION_RENDERER = proc { |collection| collection.as_json }
-    
+
     class << self
       attr_accessor :simple_api
 
@@ -18,11 +18,10 @@ module GenericApiRails
         @session_authentication_method
       end
 
-      # login_with takes a block that accepts two arguments, username
-      # and password, which the caller should use to authenticate the
-      # user.  If the user is authenticated, return an object
-      # indicating this.  It will be stored along with the API token
-      # for later use.
+      # login_with takes a block that accepts a hash, which the caller should
+      # use to authenticate the user.  If the user is authenticated, return an
+      # object indicating this.  It will be stored along with the API token for
+      # later use.
       def login_with(&blk)
         @login_with = blk if blk
         @login_with
@@ -32,7 +31,8 @@ module GenericApiRails
       # difference being that it rejects already-used emails and
       # creates a user before it is returned to the client.  It may
       # throw whatever errors it wishes, which will be passed along to
-      # the client in JSON form.
+      # the client in JSON form.  Validation errors will be sent to the client
+      # as well, so do not use create!(hash), use create(hash)
       def signup_with(&blk)
         @sign_up_with = blk if blk
         @sign_up_with
@@ -142,7 +142,7 @@ module GenericApiRails
         end
         @new_api_token_every_login || false
       end
-      
+
       # Enable facebook-based API authentication in the app (requires
       # :app_id and :app_secret):
       def use_facebook(hash)
