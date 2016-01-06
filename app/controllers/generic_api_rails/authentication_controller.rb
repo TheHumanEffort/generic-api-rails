@@ -276,10 +276,12 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
 
   def login
     incoming_api_token = params[:api_token] || request.headers["api-token"]
-
+    incoming_username = params[:username] || params[:email]
+    
     @credential = nil
     api_token = nil
 
+    
     logger.debug("INCOMING API TOKEN '#{incoming_api_token.presence}'")
 
     if incoming_api_token.present? and not params[:password]
@@ -291,7 +293,7 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
         else
           cred_email = @credential.email
         end
-        (@api_token.destroy and @api_token = nil) if (not @credential) or (username && cred_email.downcase != username.downcase)
+        (@api_token.destroy and @api_token = nil) if (not @credential) or (incoming_username && cred_email.downcase != incoming_username.downcase)
       end
     end
 
