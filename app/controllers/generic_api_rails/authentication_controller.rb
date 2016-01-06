@@ -282,7 +282,7 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
 
     logger.debug("INCOMING API TOKEN '#{incoming_api_token.presence}'")
 
-    if incoming_api_token.present? and not password
+    if incoming_api_token.present? and not params[:password]
       @api_token = ApiToken.find_by(token: incoming_api_token) rescue nil
       if @api_token
         @credential = @api_token.credential
