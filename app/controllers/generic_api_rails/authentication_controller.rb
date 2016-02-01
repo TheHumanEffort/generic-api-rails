@@ -1,8 +1,10 @@
 require 'open-uri'
 require 'koala'
+require 'json'
+require 'base64'
 
 class GenericApiRails::AuthenticationController < GenericApiRails::BaseController
-  skip_before_filter :api_setup, except: [:logout,:change_password]
+  skip_before_filter :api_setup, except: [:logout,:change_password,:temporary_login_code]
   skip_before_filter :verify_authenticity_token
 
   def change_password
@@ -130,12 +132,26 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
     username = params[:username] || params[:email] || params[:login]
     incoming_api_token = params[:api_token] || request.headers["api-token"]
     password = params[:password]
+    code = params[:code]
 
     username = username.downcase if username.present?
     @credential = nil
     api_token = nil
 
     logger.debug("INCOMING API TOKEN '#{incoming_api_token.presence}'")
+    logger.debug("INCOMING CODE '#{ code }'")
+
+    if code.present?
+      data = JSON.parse(decrypt_and_verify(Base64.decode64(code)))
+      logger.debug("data: #{ data }")
+      
+      expires = DateTime.parse(data['expires'])
+      logger.debug("Expires #{ expires }, Now: #{ DateTime.now }, comp: #{ expires > DateTime.now }")
+      if(expires and expires > DateTime.now)
+        incoming_api_token = data['token']
+        logger.debug("Incoming api token #{ incoming_api_token }")
+      end
+    end
 
     if incoming_api_token.present? and not password
       @api_token = ApiToken.find_by(token: incoming_api_token) rescue nil
@@ -157,9 +173,23 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
         @credential = GenericApiRails.config.login_with.call(username, password)
       end
     end
+    
+
 
     logger.debug("Credentials #{ @credential }")
     done
+  end
+
+  
+  def temporary_login_code
+    render :json => { success: false, error: "Not logged in" } and return unless @api_token
+    
+    data = { token: @api_token.token, credential_id: @authenticated.id, expires: 1.minutes.from_now.iso8601 }
+    logger.debug("Encrypting #{ data.to_json }")
+    encrypted_code = Base64.strict_encode64(encrypt_and_sign(data.to_json))
+    logger.debug("Blah: #{ encrypted_code }")
+    
+    render json: { code: encrypted_code }
   end
 
   def validate_signup_params(params)
@@ -233,4 +263,21 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
     @api_token.destroy!
     render :json => { status: "OK" }
   end
+
+  
+  private
+  
+  def crypt
+    ActiveSupport::MessageEncryptor.new(Rails.application.secrets.secret_key_base)
+  end
+
+  def encrypt_and_sign(string)
+    crypt.encrypt_and_sign(string)
+  end
+
+  def decrypt_and_verify(string)
+    crypt.decrypt_and_verify(string)
+  end
+
+
 end

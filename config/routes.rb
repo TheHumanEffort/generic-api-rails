@@ -2,7 +2,8 @@ GenericApiRails::Engine.routes.draw do
   namespace :generic_api_rails, :path => "/",defaults: { format: 'json' } do
     match '*path' => "base#options", :via => [:options]
   
-    namespace "authentication" do 
+    namespace "authentication" do
+      get 'temporary_login_code'
       get 'facebook' 
       post 'facebook'
       get 'login'
