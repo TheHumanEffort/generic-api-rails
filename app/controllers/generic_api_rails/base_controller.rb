@@ -52,13 +52,13 @@ module GenericApiRails
 
       if api_token and not token
         api_token.delete if api_token
-        raise ApiError.find(ApiError::INVALID_API_TOKEN)
+        raise ApiError.find_by_code(ApiError::INVALID_API_TOKEN)
       end
 
       @authenticated = credential
 
       s = GenericApiRails.config.session_authentication_method
-      send(s) if s
+      @authenticated ||= send(s) if s
 
       @action = params[:action]
       @controller = params[:controller]

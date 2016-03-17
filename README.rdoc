@@ -2,8 +2,26 @@
 
 This project rocks and uses MIT-LICENSE.
 
-Usage:
+== Usage:
 
-gem 'generic_api_rails', git: 'git@git.opuslogica.com:generic_api_rails.git', branch: 'master'
-bundle install --path=vendor/ruby
+```
+gem 'generic_api_rails', git: 'https://github.com/TheHumanEffort/generic-api-rails.git', branch: 'master'
+bundle install
 bundle exec rails generate generic_api_rails:install
+```
+
+== Optional:
+
+You may optionally get access to API token-based authentication.  To
+do so, copy the migrations over:
+
+```
+bin/rails generic_api_rails:install:migrations
+```
+
+== Configuration
+
+After running the installation generator above, you'll have a
+generic_api.rb initializer that you can to configure the way in
+which the API server handles various situations.  Read more in
+lib/generic_api_rails/config.rb about what is available.

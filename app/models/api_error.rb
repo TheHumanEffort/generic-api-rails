@@ -1,4 +1,4 @@
-class ApiError < ActiveRecord::Base
+class ApiError
   INVALID_ARGUMENT             = 11
   INVALID_RANGE                = 12
   INVALID_USERNAME_OR_PASSWORD = 17
@@ -6,6 +6,8 @@ class ApiError < ActiveRecord::Base
   INVALID_PERSON_ID            = 20
   UNAUTHORIZED                 = 100
 
+  attribute_accessors :code, :description, :status_code
+  
   STANDARD_ERRORS =
     [
      { :code => INVALID_ARGUMENT, :description => "Invalid argument", :status_code => 403 },
@@ -16,16 +18,33 @@ class ApiError < ActiveRecord::Base
      { :code => UNAUTHORIZED, :description => "Unauthorized for this action", :status_code => 403 },
     ]
 
-  def self.make_standard_errors
-    STANDARD_ERRORS.each do |h|
-      e = self.find_or_create_by(code: h[:code])
-      e.description = h[:description] if e.description != h[:description]
-      e.status_code = h[:status_code] if e.status_code != h[:status_code]
-      e.save
-    end
+  def self.find_by_code code
+    by_code[code]
   end
 
   def as_json(options={})
     super(:only => [:code, :status_code, :description])
   end
+
+  def self.error_with_hash h
+    n = new
+    n.code = h[:code]
+    n.description = h[:description]
+    n.status_code = h[:status_code]
+    n
+  end
+
+  def self._create_by_code
+    by_code = {}
+    STANDARD_ERRORS.each do |err|
+      by_code[err[:code]] = error_with_hash(err)
+    end
+    by_code
+  end
+  
+  def self.by_code
+    @by_code ||= _create_by_code
+  end
+    
+
 end
