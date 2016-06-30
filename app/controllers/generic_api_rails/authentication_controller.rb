@@ -6,8 +6,12 @@ rescue Exception
   Rails.logger.info "Koala is not available, add it to your gemfile to add facebook login support."
 end
 
+require 'json'
+require 'base64'
+
+
 class GenericApiRails::AuthenticationController < GenericApiRails::BaseController
-  skip_before_filter :api_setup, except: [:logout,:change_password]
+  skip_before_filter :api_setup, except: [:logout,:change_password,:temporary_login_code]
   skip_before_filter :verify_authenticity_token
 
   def change_password
@@ -277,12 +281,30 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
   def login
     incoming_api_token = params[:api_token] || request.headers["api-token"]
     incoming_username = params[:username] || params[:email]
-    
+
+    password = params[:password]
+    code = params[:code]
+
+    username = username.downcase if username.present?
+
     @credential = nil
     api_token = nil
 
     
     logger.debug("INCOMING API TOKEN '#{incoming_api_token.presence}'")
+    logger.debug("INCOMING CODE '#{ code }'")
+
+    if code.present?
+      data = JSON.parse(decrypt_and_verify(Base64.decode64(code)))
+      logger.debug("data: #{ data }")
+      
+      expires = DateTime.parse(data['expires'])
+      logger.debug("Expires #{ expires }, Now: #{ DateTime.now }, comp: #{ expires > DateTime.now }")
+      if(expires and expires > DateTime.now)
+        incoming_api_token = data['token']
+        logger.debug("Incoming api token #{ incoming_api_token }")
+      end
+    end
 
     if incoming_api_token.present? and not params[:password]
       @api_token = ApiToken.find_by(token: incoming_api_token) rescue nil
@@ -300,10 +322,40 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
     if not @api_token
       @credential = GenericApiRails.config.login_with.call(params)
     end
+    
+
 
     logger.debug("Credentials #{ @credential }")
 
     done
+  end
+  
+  def temporary_login_code
+    render :json => { success: false, error: "Not logged in" } and return unless @api_token
+    
+    data = { token: @api_token.token, credential_id: @authenticated.id, expires: 1.minutes.from_now.iso8601 }
+    logger.debug("Encrypting #{ data.to_json }")
+    encrypted_code = Base64.strict_encode64(encrypt_and_sign(data.to_json))
+    logger.debug("Blah: #{ encrypted_code }")
+    
+    render json: { code: encrypted_code }
+  end
+
+  def validate_signup_params(params)
+    errs = {}
+    if not params[:fname] and not params[:lname] and not params[:name]
+      errs[:fname] = "You must provide at least one name"
+    end
+
+    if not true
+      errs[:fname] = "You must provide a first name" unless params[:fname].present?
+      errs[:lname] = "You must provide a last name" unless params[:lname].present?
+    end
+
+    errs[:username] = "You must provide a valid email" unless params[:username].present?
+    errs[:password] = "You must provide a password of at least 4 characters" unless params[:password].present? && params[:password].length >= 4
+    errs = nil if errs.keys.length == 0
+    errs
   end
 
   def signup
@@ -346,4 +398,21 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
     @api_token.destroy!
     render :json => { status: "OK" }
   end
+
+  
+  private
+  
+  def crypt
+    ActiveSupport::MessageEncryptor.new(Rails.application.secrets.secret_key_base)
+  end
+
+  def encrypt_and_sign(string)
+    crypt.encrypt_and_sign(string)
+  end
+
+  def decrypt_and_verify(string)
+    crypt.decrypt_and_verify(string)
+  end
+
+
 end

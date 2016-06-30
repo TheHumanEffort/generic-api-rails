@@ -209,7 +209,9 @@ module GenericApiRails
     end
 
     def assign_instance_attributes(hash)
-      @instance.assign_attributes(hash)
+      columns = model.columns.map { |c| c.name }
+      columns = columns + columns.map { |c| c.to_sym }
+      @instance.assign_attributes(hash.slice(*columns))
     end
 
     def update
