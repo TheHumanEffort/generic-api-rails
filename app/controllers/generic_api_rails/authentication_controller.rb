@@ -166,17 +166,17 @@ class GenericApiRails::AuthenticationController < GenericApiRails::BaseControlle
       end
     end
 
-    if not @api_token
+    s = GenericApiRails.config.session_authentication_method
+    @credential ||= send(s) if s
+    
+    unless @api_token || @credential
       if username.blank? or password.blank?
         render_error ApiError::INVALID_USERNAME_OR_PASSWORD and return
       else
         @credential = GenericApiRails.config.login_with.call(username, password)
       end
     end
-    
 
-
-    logger.debug("Credentials #{ @credential }")
     done
   end
 
